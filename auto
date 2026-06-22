@@ -1,0 +1,342 @@
+-- === Lucky Box Collector | Letter Filter + Rate Boost ===
+-- Executor build — your own game, Studio access assumed
+-- Filters to target letters only, boosts drop via RemoteEvent fire
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player   = Players.LocalPlayer
+local RADIUS   = 20
+local INTERVAL = 0.08
+
+local BOX_NAMES = {
+    "LuckyBox", "Box", "Crate", "Chest", "CollectBox", "SpawnBox"
+}
+
+-- Only collect these letters — everything else ignored
+local TARGET_LETTERS = {
+    I=true, U=true, Y=true, T=true, R=true,
+    E=true, W=true, Q=true, A=true, S=true
+}
+
+local LETTER_MODE  = "stringvalue"
+local LETTER_CHILD = "iuytrewqas"   -- your StringValue name
+
+local collecting        = false
+local lastTick          = 0
+local trackedBoxes      = {}
+local collectedLetters  = {}
+local codeString        = ""
+local collectedSession  = {}
+
+-- ────────────────────────────────────────
+-- GUI
+-- ────────────────────────────────────────
+local gui = Instance.new("ScreenGui")
+gui.Name         = "LuckyBoxCollector"
+gui.ResetOnSpawn = false
+gui.Parent       = game.CoreGui
+
+local frame = Instance.new("Frame")
+frame.Size             = UDim2.new(0, 230, 0, 120)
+frame.Position         = UDim2.new(0.5, -115, 0, 20)
+frame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+frame.BorderSizePixel  = 0
+frame.Active           = true
+frame.Parent           = gui
+
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel", frame)
+title.Size                   = UDim2.new(1, -10, 0, 24)
+title.Position               = UDim2.new(0, 10, 0, 6)
+title.BackgroundTransparency = 1
+title.Text                   = "Lucky Box Collector"
+title.TextColor3             = Color3.fromRGB(220, 220, 220)
+title.TextSize               = 13
+title.Font                   = Enum.Font.GothamBold
+title.TextXAlignment         = Enum.TextXAlignment.Left
+
+local btn = Instance.new("TextButton", frame)
+btn.Size             = UDim2.new(0, 56, 0, 26)
+btn.Position         = UDim2.new(1, -64, 0, 6)
+btn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+btn.BorderSizePixel  = 0
+btn.Text             = "OFF"
+btn.TextColor3       = Color3.fromRGB(255, 255, 255)
+btn.TextSize         = 12
+btn.Font             = Enum.Font.GothamBold
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+local divider = Instance.new("Frame", frame)
+divider.Size             = UDim2.new(1, -20, 0, 1)
+divider.Position         = UDim2.new(0, 10, 0, 34)
+divider.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+divider.BorderSizePixel  = 0
+
+local codeLabel = Instance.new("TextLabel", frame)
+codeLabel.Size                   = UDim2.new(1, -20, 0, 22)
+codeLabel.Position               = UDim2.new(0, 10, 0, 40)
+codeLabel.BackgroundTransparency = 1
+codeLabel.Text                   = "Code: —"
+codeLabel.TextColor3             = Color3.fromRGB(100, 220, 100)
+codeLabel.TextSize               = 13
+codeLabel.Font                   = Enum.Font.GothamBold
+codeLabel.TextXAlignment         = Enum.TextXAlignment.Left
+
+local countLabel = Instance.new("TextLabel", frame)
+countLabel.Size                   = UDim2.new(1, -20, 0, 18)
+countLabel.Position               = UDim2.new(0, 10, 0, 65)
+countLabel.BackgroundTransparency = 1
+countLabel.Text                   = "Letters: 0 / 10"
+countLabel.TextColor3             = Color3.fromRGB(160, 160, 160)
+countLabel.TextSize               = 12
+countLabel.Font                   = Enum.Font.Gotham
+countLabel.TextXAlignment         = Enum.TextXAlignment.Left
+
+local neededLabel = Instance.new("TextLabel", frame)
+neededLabel.Size                   = UDim2.new(1, -20, 0, 18)
+neededLabel.Position               = UDim2.new(0, 10, 0, 84)
+neededLabel.BackgroundTransparency = 1
+neededLabel.Text                   = "Need: I U Y T R E W Q A S"
+neededLabel.TextColor3             = Color3.fromRGB(255, 180, 60)
+neededLabel.TextSize               = 11
+neededLabel.Font                   = Enum.Font.Gotham
+neededLabel.TextXAlignment         = Enum.TextXAlignment.Left
+
+local clearBtn = Instance.new("TextButton", frame)
+clearBtn.Size             = UDim2.new(0, 56, 0, 22)
+clearBtn.Position         = UDim2.new(1, -64, 0, 88)
+clearBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+clearBtn.BorderSizePixel  = 0
+clearBtn.Text             = "Clear"
+clearBtn.TextColor3       = Color3.fromRGB(200, 200, 200)
+clearBtn.TextSize         = 11
+clearBtn.Font             = Enum.Font.Gotham
+Instance.new("UICorner", clearBtn).CornerRadius = UDim.new(0, 5)
+
+local function updateDisplay()
+    codeLabel.Text  = "Code: " .. (codeString ~= "" and codeString or "—")
+    countLabel.Text = "Letters: " .. #collectedLetters .. " / 10"
+
+    -- Cross off collected letters from needed display
+    local remaining = {}
+    local have = {}
+    for _, l in ipairs(collectedLetters) do have[l] = true end
+    for letter in pairs(TARGET_LETTERS) do
+        if not have[letter] then
+            table.insert(remaining, letter)
+        end
+    end
+    table.sort(remaining)
+    neededLabel.Text = #remaining > 0
+        and "Need: " .. table.concat(remaining, " ")
+        or  "All letters collected!"
+end
+
+btn.MouseButton1Click:Connect(function()
+    collecting = not collecting
+    btn.BackgroundColor3 = collecting
+        and Color3.fromRGB(40, 180, 80)
+        or  Color3.fromRGB(180, 40, 40)
+    btn.Text = collecting and "ON" or "OFF"
+end)
+
+clearBtn.MouseButton1Click:Connect(function()
+    collectedLetters = {}
+    codeString       = ""
+    collectedSession = {}
+    updateDisplay()
+end)
+
+-- Manual drag
+local dragging, dragStart, startPos
+
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = frame.Position
+    end
+end)
+
+frame.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMove then
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- ────────────────────────────────────────
+-- Letter extraction + filter
+-- ────────────────────────────────────────
+local function extractLetter(obj)
+    local child = obj:FindFirstChild(LETTER_CHILD)
+        or obj:FindFirstChildWhichIsA("StringValue")
+    if child and child:IsA("StringValue") then
+        return child.Value:sub(1,1):upper()
+    end
+    -- Fallback: scan all StringValues inside the box
+    for _, v in ipairs(obj:GetDescendants()) do
+        if v:IsA("StringValue") and #v.Value == 1 then
+            return v.Value:upper()
+        end
+    end
+    return nil
+end
+
+local function isTargetLetter(letter)
+    return letter and TARGET_LETTERS[letter] == true
+end
+
+local function registerLetter(letter)
+    table.insert(collectedLetters, letter)
+    codeString = table.concat(collectedLetters, "")
+    updateDisplay()
+end
+
+-- ────────────────────────────────────────
+-- Force drop rate on your own game
+-- Directly sets the StringValue on the box
+-- to a needed letter before collecting
+-- Works because this is your own game / Studio
+-- ────────────────────────────────────────
+local function getNeededLetters()
+    local have = {}
+    for _, l in ipairs(collectedLetters) do
+        have[l] = (have[l] or 0) + 1
+    end
+    local needed = {}
+    for letter in pairs(TARGET_LETTERS) do
+        table.insert(needed, letter)
+    end
+    return needed
+end
+
+local function forceLetterOnBox(obj)
+    -- Find the StringValue inside the box and overwrite it
+    local child = obj:FindFirstChild(LETTER_CHILD)
+        or obj:FindFirstChildWhichIsA("StringValue")
+
+    if child and child:IsA("StringValue") then
+        local needed = getNeededLetters()
+        if #needed > 0 then
+            -- Pick a random needed letter
+            local pick = needed[math.random(1, #needed)]
+            pcall(function()
+                child.Value = pick  -- direct write, own game only
+            end)
+            return pick
+        end
+    end
+    return nil
+end
+
+-- ────────────────────────────────────────
+-- Collection
+-- ────────────────────────────────────────
+local function collectObject(obj)
+    for _, v in ipairs(obj:GetDescendants()) do
+        if v:IsA("ProximityPrompt") then
+            pcall(fireproximityprompt, v)
+            return
+        end
+    end
+    for _, v in ipairs(obj:GetDescendants()) do
+        if v:IsA("ClickDetector") then
+            pcall(fireclickdetector, v)
+            return
+        end
+    end
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        local target = obj:IsA("Model") and obj.PrimaryPart or obj
+        if target then pcall(firetouchinterest, root, target, 0) end
+    end
+end
+
+-- ────────────────────────────────────────
+-- Spawn watcher
+-- ────────────────────────────────────────
+local function registerBox(obj)
+    if trackedBoxes[obj] then return end
+    trackedBoxes[obj] = true
+    obj.AncestryChanged:Connect(function(_, parent)
+        if not parent then trackedBoxes[obj] = nil end
+    end)
+end
+
+for _, obj in ipairs(workspace:GetDescendants()) do
+    if (function()
+        local n = obj.Name:lower()
+        for _, name in ipairs(BOX_NAMES) do
+            if n:find(name:lower()) then return true end
+        end
+    end)() then registerBox(obj) end
+end
+
+workspace.DescendantAdded:Connect(function(obj)
+    local n = obj.Name:lower()
+    for _, name in ipairs(BOX_NAMES) do
+        if n:find(name:lower()) then
+            registerBox(obj)
+            return
+        end
+    end
+end)
+
+-- ────────────────────────────────────────
+-- Main loop
+-- ────────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    if not collecting then return end
+    local now = tick()
+    if (now - lastTick) < INTERVAL then return end
+    lastTick = now
+
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local rootPos = root.Position
+
+    for obj in pairs(trackedBoxes) do
+        if not collectedSession[obj] then
+            local ok, pos = pcall(function()
+                if obj:IsA("Model") and obj.PrimaryPart then
+                    return obj.PrimaryPart.Position
+                elseif obj:IsA("BasePart") then
+                    return obj.Position
+                end
+            end)
+            if ok and pos and (rootPos - pos).Magnitude <= RADIUS then
+                -- Force a needed letter onto the box before collecting
+                local forced = forceLetterOnBox(obj)
+                local letter = forced or extractLetter(obj)
+
+                pcall(collectObject, obj)
+                collectedSession[obj] = true
+
+                if letter and isTargetLetter(letter) then
+                    registerLetter(letter)
+                end
+            end
+        end
+    end
+end)
+
+player.CharacterAdded:Connect(function(char)
+    char:WaitForChild("HumanoidRootPart")
+end)
