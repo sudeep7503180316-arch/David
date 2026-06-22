@@ -1,0 +1,52 @@
+local prompt = script.Parent:WaitForChild("ProximityPrompt")
+
+local TargetCode = "IUYTREWQAS"
+local Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+prompt.Triggered:Connect(function(player)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+
+	local letters = leaderstats:FindFirstChild("IUYTREWQAS")
+	if not letters then
+		warn("IUYTREWQAS StringValue not found!")
+		return
+	end
+
+	local current = letters.Value
+	local needed = {}
+
+	-- Find missing letters
+	for i = 1, #TargetCode do
+		local letter = TargetCode:sub(i, i)
+
+		if not string.find(current, letter, 1, true) then
+			table.insert(needed, letter)
+		end
+	end
+
+	-- Already completed
+	if #needed == 0 then
+		print(player.Name .. " already completed the code!")
+		return
+	end
+
+	local reward
+	local roll = math.random(1, 100)
+
+	-- 90% chance for a missing letter
+	if roll <= 90 then
+		reward = needed[math.random(1, #needed)]
+	else
+		-- 10% chance for a random alphabet letter
+		reward = Alphabet:sub(math.random(1, #Alphabet), math.random(1, #Alphabet))
+	end
+
+	-- Add reward if player doesn't already own it
+	if not string.find(current, reward, 1, true) then
+		letters.Value = current .. reward
+		print(player.Name .. " received letter: " .. reward)
+	else
+		print(player.Name .. " already owns letter: " .. reward)
+	end
+end)
