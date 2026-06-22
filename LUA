@@ -1,0 +1,317 @@
+-- luck_changer.lua
+-- Local executor script: Luck stat override with draggable GUI
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ══════════════════════════════════════
+-- CONFIG
+-- ══════════════════════════════════════
+local CONFIG = {
+    DefaultLuck = 100,
+    MinLuck = 0,
+    MaxLuck = 999999,
+    LuckStatName = "Luck", -- change to match your game's stat name
+    UpdateInterval = 0.1,  -- seconds between luck re-applies
+}
+
+-- ══════════════════════════════════════
+-- STAT RESOLVER
+-- Tries common stat locations in order
+-- ══════════════════════════════════════
+local function findLuckStat()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        local s = leaderstats:FindFirstChild(CONFIG.LuckStatName)
+        if s then return s end
+    end
+
+    local statsFolder = LocalPlayer:FindFirstChild("Stats")
+        or LocalPlayer:FindFirstChild("Data")
+        or LocalPlayer:FindFirstChild("PlayerData")
+    if statsFolder then
+        local s = statsFolder:FindFirstChild(CONFIG.LuckStatName)
+        if s then return s end
+    end
+
+    -- Deep search fallback
+    for _, child in ipairs(LocalPlayer:GetChildren()) do
+        local s = child:FindFirstChild(CONFIG.LuckStatName)
+        if s then return s end
+    end
+
+    return nil
+end
+
+-- ══════════════════════════════════════
+-- GUI BUILD
+-- ══════════════════════════════════════
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "LuckOverrideGUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = game:GetService("CoreGui")
+
+-- Main frame
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = UDim2.new(0, 280, 0, 220)
+frame.Position = UDim2.new(0.5, -140, 0.5, -110)
+frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = frame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(90, 60, 180)
+stroke.Thickness = 1.5
+stroke.Parent = frame
+
+-- Title bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 36)
+titleBar.BackgroundColor3 = Color3.fromRGB(30, 20, 50)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = frame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -10, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "⚡ LUCK OVERRIDE"
+titleLabel.TextColor3 = Color3.fromRGB(180, 130, 255)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 14
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+-- Close button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 28, 0, 28)
+closeBtn.Position = UDim2.new(1, -32, 0, 4)
+closeBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 12
+closeBtn.BorderSizePixel = 0
+closeBtn.Parent = titleBar
+
+local closeBtnCorner = Instance.new("UICorner")
+closeBtnCorner.CornerRadius = UDim.new(0, 6)
+closeBtnCorner.Parent = closeBtn
+
+-- Current luck display
+local currentLabel = Instance.new("TextLabel")
+currentLabel.Size = UDim2.new(1, -20, 0, 24)
+currentLabel.Position = UDim2.new(0, 10, 0, 46)
+currentLabel.BackgroundTransparency = 1
+currentLabel.Text = "Current Luck: --"
+currentLabel.TextColor3 = Color3.fromRGB(160, 160, 180)
+currentLabel.Font = Enum.Font.Gotham
+currentLabel.TextSize = 12
+currentLabel.TextXAlignment = Enum.TextXAlignment.Left
+currentLabel.Parent = frame
+
+-- Input label
+local inputLabel = Instance.new("TextLabel")
+inputLabel.Size = UDim2.new(1, -20, 0, 20)
+inputLabel.Position = UDim2.new(0, 10, 0, 78)
+inputLabel.BackgroundTransparency = 1
+inputLabel.Text = "Set Luck Value:"
+inputLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+inputLabel.Font = Enum.Font.GothamBold
+inputLabel.TextSize = 13
+inputLabel.TextXAlignment = Enum.TextXAlignment.Left
+inputLabel.Parent = frame
+
+-- Input box
+local inputBox = Instance.new("TextBox")
+inputBox.Size = UDim2.new(1, -20, 0, 36)
+inputBox.Position = UDim2.new(0, 10, 0, 102)
+inputBox.BackgroundColor3 = Color3.fromRGB(30, 28, 40)
+inputBox.BorderSizePixel = 0
+inputBox.Text = tostring(CONFIG.DefaultLuck)
+inputBox.TextColor3 = Color3.fromRGB(220, 200, 255)
+inputBox.PlaceholderText = "Enter luck value..."
+inputBox.PlaceholderColor3 = Color3.fromRGB(100, 90, 130)
+inputBox.Font = Enum.Font.GothamBold
+inputBox.TextSize = 16
+inputBox.ClearTextOnFocus = false
+inputBox.Parent = frame
+
+local inputCorner = Instance.new("UICorner")
+inputCorner.CornerRadius = UDim.new(0, 6)
+inputCorner.Parent = inputBox
+
+local inputStroke = Instance.new("UIStroke")
+inputStroke.Color = Color3.fromRGB(90, 60, 180)
+inputStroke.Thickness = 1
+inputStroke.Parent = inputBox
+
+-- Apply button
+local applyBtn = Instance.new("TextButton")
+applyBtn.Size = UDim2.new(0, 120, 0, 36)
+applyBtn.Position = UDim2.new(0, 10, 0, 150)
+applyBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 160)
+applyBtn.BorderSizePixel = 0
+applyBtn.Text = "APPLY"
+applyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+applyBtn.Font = Enum.Font.GothamBold
+applyBtn.TextSize = 13
+applyBtn.Parent = frame
+
+local applyCorner = Instance.new("UICorner")
+applyCorner.CornerRadius = UDim.new(0, 6)
+applyCorner.Parent = applyBtn
+
+-- Toggle lock button
+local lockBtn = Instance.new("TextButton")
+lockBtn.Size = UDim2.new(0, 130, 0, 36)
+lockBtn.Position = UDim2.new(0, 140, 0, 150)
+lockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+lockBtn.BorderSizePixel = 0
+lockBtn.Text = "🔓 AUTO: OFF"
+lockBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+lockBtn.Font = Enum.Font.GothamBold
+lockBtn.TextSize = 11
+lockBtn.Parent = frame
+
+local lockCorner = Instance.new("UICorner")
+lockCorner.CornerRadius = UDim.new(0, 6)
+lockCorner.Parent = lockBtn
+
+-- Status label
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 0, 194)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Ready."
+statusLabel.TextColor3 = Color3.fromRGB(100, 200, 120)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 11
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = frame
+
+-- ══════════════════════════════════════
+-- STATE
+-- ══════════════════════════════════════
+local autoLockEnabled = false
+local targetLuck = CONFIG.DefaultLuck
+local lastAppliedLuck = nil
+
+-- ══════════════════════════════════════
+-- CORE APPLY FUNCTION
+-- ══════════════════════════════════════
+local function applyLuck(value)
+    local stat = findLuckStat()
+    if not stat then
+        statusLabel.Text = "⚠ Stat '" .. CONFIG.LuckStatName .. "' not found."
+        statusLabel.TextColor3 = Color3.fromRGB(255, 160, 60)
+        return false
+    end
+
+    local clamped = math.clamp(value, CONFIG.MinLuck, CONFIG.MaxLuck)
+
+    -- Try Value property (IntValue / NumberValue)
+    if stat:IsA("IntValue") or stat:IsA("NumberValue") then
+        stat.Value = clamped
+        lastAppliedLuck = clamped
+        return true
+    end
+
+    -- Try StringValue (some games store as string)
+    if stat:IsA("StringValue") then
+        stat.Value = tostring(clamped)
+        lastAppliedLuck = clamped
+        return true
+    end
+
+    statusLabel.Text = "⚠ Unsupported stat type: " .. stat.ClassName
+    statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    return false
+end
+
+local function readCurrentLuck()
+    local stat = findLuckStat()
+    if not stat then return nil end
+    local v = tonumber(stat.Value)
+    return v
+end
+
+-- ══════════════════════════════════════
+-- BUTTON LOGIC
+-- ══════════════════════════════════════
+applyBtn.MouseButton1Click:Connect(function()
+    local input = tonumber(inputBox.Text)
+    if not input then
+        statusLabel.Text = "⚠ Invalid number."
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return
+    end
+
+    targetLuck = math.clamp(input, CONFIG.MinLuck, CONFIG.MaxLuck)
+    local success = applyLuck(targetLuck)
+
+    if success then
+        statusLabel.Text = "✔ Luck set to " .. tostring(targetLuck)
+        statusLabel.TextColor3 = Color3.fromRGB(100, 220, 130)
+    end
+end)
+
+lockBtn.MouseButton1Click:Connect(function()
+    autoLockEnabled = not autoLockEnabled
+    if autoLockEnabled then
+        lockBtn.Text = "🔒 AUTO: ON"
+        lockBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+        statusLabel.Text = "Auto-lock active."
+        statusLabel.TextColor3 = Color3.fromRGB(100, 220, 130)
+    else
+        lockBtn.Text = "🔓 AUTO: OFF"
+        lockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+        statusLabel.Text = "Auto-lock disabled."
+        statusLabel.TextColor3 = Color3.fromRGB(160, 160, 180)
+    end
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+-- ══════════════════════════════════════
+-- HEARTBEAT LOOP
+-- Updates display + re-applies if auto-lock on
+-- ══════════════════════════════════════
+local elapsed = 0
+RunService.Heartbeat:Connect(function(dt)
+    elapsed = elapsed + dt
+    if elapsed < CONFIG.UpdateInterval then return end
+    elapsed = 0
+
+    local current = readCurrentLuck()
+    if current ~= nil then
+        currentLabel.Text = "Current Luck: " .. tostring(current)
+    else
+        currentLabel.Text = "Current Luck: (stat not found)"
+    end
+
+    if autoLockEnabled then
+        local input = tonumber(inputBox.Text)
+        if input then
+            targetLuck = math.clamp(input, CONFIG.MinLuck, CONFIG.MaxLuck)
+        end
+        if current ~= targetLuck then
+            applyLuck(targetLuck)
+        end
+    end
+end)
